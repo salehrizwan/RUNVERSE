@@ -100,18 +100,22 @@ export interface PlayerRunState {
   slideTimer: number;    // Remaining slide duration in seconds
   speed: number;         // Current forward speed (m/s)
   distance: number;      // Meters traveled
-  score: number;         // Current run score
+  score: number;         // Current run score (2 points per second of active gameplay)
+  activeRunTime: number; // Exact elapsed active gameplay time in seconds
   coins: number;         // Coins gathered in this run
   activeShield: boolean;
   magnetTimer: number;   // Remaining magnet time
   multiplierTimer: number; // Remaining 2x multiplier time
   isAlive: boolean;
   deathReason?: string;
+  isCelebrating?: boolean;
 }
 
 export type GameMode = 'offline' | 'multiplayer';
 
 export type GameStatus = 'menu' | 'countdown' | 'running' | 'paused' | 'gameover';
+
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 export interface MultiplayerPlayerState {
   id: string;
@@ -119,12 +123,15 @@ export interface MultiplayerPlayerState {
   characterId: CharacterId;
   lane: number;
   y: number;
-  isSliding: boolean;
-  isJumping: boolean;
   distance: number;
   score: number;
+  isSliding: boolean;
+  isJumping: boolean;
   isAlive: boolean;
   isReady: boolean;
+  assignedColor: string;
+  colorName: string;
+  timestamp?: number;
 }
 
 export interface MultiplayerRoom {
@@ -135,6 +142,7 @@ export interface MultiplayerRoom {
   status: 'waiting' | 'countdown' | 'running' | 'completed';
   seed: number;
   createdAt: number;
+  lastActivity?: number;
 }
 
 export interface CombinedHighScoreRecord {
@@ -160,5 +168,6 @@ export interface UserSaveData {
   sfxVolume: number;
   graphicsQuality: 'low' | 'medium' | 'high';
   showTouchControls: boolean;
+  customWsUrl?: string;
   friendsHighScores: CombinedHighScoreRecord[];
 }

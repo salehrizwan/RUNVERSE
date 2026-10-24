@@ -107,7 +107,25 @@ export class TrackManager {
     };
   }
 
+  private rng: () => number = Math.random;
+
+  private createPRNG(seed: number): () => number {
+    let s = (seed >>> 0) || 123456789;
+    return () => {
+      s = (s + 0x6D2B79F5) | 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
   public reset(seed?: number): void {
+    if (seed != null) {
+      this.rng = this.createPRNG(seed);
+    } else {
+      this.rng = Math.random;
+    }
+
     // Clear existing segments
     this.segments.forEach(seg => {
       this.scene.remove(seg.meshGroup);
@@ -192,7 +210,7 @@ export class TrackManager {
 
     eventOffsets.forEach((localZ) => {
       const worldZ = zCenter + localZ;
-      const pattern = Math.floor(Math.random() * 6);
+      const pattern = Math.floor(this.rng() * 6);
 
       // GUARANTEED FAIRNESS:
       // Pattern 0: Single Hurdle (Jump) in one lane, coins in other lanes
@@ -204,7 +222,7 @@ export class TrackManager {
 
       if (pattern === 0 || pattern === 5) {
         // Low hurdle in a random lane
-        const targetLane = Math.floor(Math.random() * 3) - 1; // -1, 0, or 1
+        const targetLane = Math.floor(this.rng() * 3) - 1; // -1, 0, or 1
         const hurdleGroup = this.createHurdleMesh();
         hurdleGroup.position.set(LANES[targetLane + 1], 0, localZ);
         meshGroup.add(hurdleGroup);
@@ -242,7 +260,7 @@ export class TrackManager {
         }
       } else if (pattern === 1) {
         // High barrier (slide underneath)
-        const targetLane = Math.floor(Math.random() * 3) - 1;
+        const targetLane = Math.floor(this.rng() * 3) - 1;
         const barrierGroup = this.createBarrierMesh();
         barrierGroup.position.set(LANES[targetLane + 1], 0, localZ);
         meshGroup.add(barrierGroup);
@@ -340,10 +358,10 @@ export class TrackManager {
       }
 
       // Rare Power-Up Spawn (10% chance per segment event)
-      if (Math.random() < 0.14) {
+      if (this.rng() < 0.14) {
         const pTypes: CollectibleType[] = ['shield', 'magnet', 'multiplier'];
-        const pType = pTypes[Math.floor(Math.random() * pTypes.length)];
-        const pLane = Math.floor(Math.random() * 3) - 1;
+        const pType = pTypes[Math.floor(this.rng() * pTypes.length)];
+        const pLane = Math.floor(this.rng() * 3) - 1;
 
         const pColor = pType === 'shield' ? 0x06b6d4 : (pType === 'magnet' ? 0xf59e0b : 0xa855f7);
         const pMat = new THREE.MeshStandardMaterial({

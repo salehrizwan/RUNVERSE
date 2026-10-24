@@ -238,6 +238,52 @@ class SoundEngine {
     });
   }
 
+  public playVictoryFanfare(): void {
+    this.ensureContext();
+    if (!this.ctx || !this.sfxGain || this.sfxVolume <= 0) return;
+
+    const now = this.ctx.currentTime;
+    // Ascending celebratory fanfare: C4, E4, G4, C5, high triumphant chord
+    const arpeggio = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99];
+    arpeggio.forEach((freq, idx) => {
+      if (!this.ctx) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const t = now + idx * 0.1;
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.35 * this.sfxVolume, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+
+      osc.connect(gain);
+      gain.connect(this.sfxGain!);
+
+      osc.start(t);
+      osc.stop(t + 0.32);
+    });
+
+    // Sustained high victory chord at end
+    const chord = [523.25, 659.25, 783.99, 1046.5];
+    chord.forEach((freq) => {
+      if (!this.ctx) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const t = now + 0.65;
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.2 * this.sfxVolume, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
+
+      osc.connect(gain);
+      gain.connect(this.sfxGain!);
+
+      osc.start(t);
+      osc.stop(t + 0.95);
+    });
+  }
+
   public startMusic(): void {
     if (this.isMusicPlaying) return;
     this.ensureContext();

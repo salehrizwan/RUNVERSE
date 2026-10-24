@@ -89,10 +89,20 @@ export interface CharacterMeshController {
   torso: THREE.Mesh;
   head: THREE.Group;
   visor: THREE.Mesh;
+  nameSprite?: THREE.Sprite;
   jetpackGlow?: THREE.Mesh;
   shieldSphere: THREE.Mesh;
   magnetRings: THREE.Group;
-  updateAnimation: (time: number, speed: number, isJumping: boolean, isSliding: boolean, isAlive: boolean) => void;
+  updateAnimation: (
+    time: number,
+    speed: number,
+    isJumping: boolean,
+    isSliding: boolean,
+    isAlive: boolean,
+    isCelebrating?: boolean,
+    celebrationElapsed?: number
+  ) => void;
+  updateTag: (name: string, relativeDistText: string, color: string) => void;
   dispose: () => void;
 }
 
@@ -100,17 +110,22 @@ export interface CharacterMeshController {
  * Creates a high-fidelity 3-12 part procedural character mesh group
  * with animated pivots for head, arms, legs, thruster, and shield.
  */
-export function createCharacterModel(characterId: CharacterId = 'cyber_dash', isGhost: boolean = false): CharacterMeshController {
+export function createCharacterModel(
+  characterId: CharacterId = 'cyber_dash',
+  isGhost: boolean = false,
+  customAccentColor?: string,
+  initialName?: string
+): CharacterMeshController {
   const charDef = CHARACTERS[characterId] || CHARACTERS.cyber_dash;
   const root = new THREE.Group();
   root.name = `character_${characterId}`;
 
   const primaryCol = new THREE.Color(charDef.colorScheme.primary);
   const secondaryCol = new THREE.Color(charDef.colorScheme.secondary);
-  const glowCol = new THREE.Color(charDef.colorScheme.glow);
-  const visorCol = new THREE.Color(charDef.colorScheme.visor);
+  const glowCol = customAccentColor ? new THREE.Color(customAccentColor) : new THREE.Color(charDef.colorScheme.glow);
+  const visorCol = customAccentColor ? new THREE.Color(customAccentColor) : new THREE.Color(charDef.colorScheme.visor);
 
-  const opacity = isGhost ? 0.6 : 1.0;
+  const opacity = isGhost ? 0.85 : 1.0;
   const transparent = isGhost;
 
   // Shared Materials
@@ -133,7 +148,7 @@ export function createCharacterModel(characterId: CharacterId = 'cyber_dash', is
   const glowMat = new THREE.MeshStandardMaterial({
     color: glowCol,
     emissive: glowCol,
-    emissiveIntensity: isGhost ? 1.0 : 1.6,
+    emissiveIntensity: isGhost ? 1.4 : 1.8,
     roughness: 0.1,
     metalness: 0.8,
     transparent,
@@ -143,7 +158,7 @@ export function createCharacterModel(characterId: CharacterId = 'cyber_dash', is
   const visorMat = new THREE.MeshStandardMaterial({
     color: visorCol,
     emissive: visorCol,
-    emissiveIntensity: 1.8,
+    emissiveIntensity: 2.0,
     roughness: 0.1,
     metalness: 0.9,
     transparent,
@@ -294,8 +309,115 @@ export function createCharacterModel(characterId: CharacterId = 'cyber_dash', is
   magnetRings.visible = false;
   root.add(magnetRings);
 
+  // Overhead Tag Sprite for Multiplayer
+  let nameSprite: THREE.Sprite | undefined;
+  let tagCanvas: HTMLCanvasElement | null = null;
+  let tagCtx: CanvasRenderingContext2D | null = null;
+  let tagTexture: THREE.CanvasTexture | null = null;
+
+  if (isGhost) {
+    tagCanvas = document.createElement('canvas');
+    tagCanvas.width = 256;
+    tagCanvas.height = 64;
+    tagCtx = tagCanvas.getContext('2d');
+    if (tagCtx) {
+      tagTexture = new THREE.CanvasTexture(tagCanvas);
+      const spriteMat = new THREE.SpriteMaterial({ map: tagTexture, transparent: true });
+      nameSprite = new THREE.Sprite(spriteMat);
+      nameSprite.scale.set(2.4, 0.6, 1);
+      nameSprite.position.set(0, 2.4, 0);
+      root.add(nameSprite);
+    }
+  }
+
+  const updateTag = (name: string, relativeDistText: string, color: string) => {
+    if (!tagCtx || !tagCanvas || !tagTexture) return;
+    tagCtx.clearRect(0, 0, 256, 64);
+
+    // Rounded background box
+    tagCtx.fillStyle = 'rgba(10, 15, 30, 0.85)';
+    tagCtx.strokeStyle = color || '#38bdf8';
+    tagCtx.lineWidth = 3;
+    tagCtx.beginPath();
+    tagCtx.roundRect(4, 4, 248, 56, 12);
+    tagCtx.fill();
+    tagCtx.stroke();
+
+    // Color dot indicator
+    tagCtx.fillStyle = color || '#38bdf8';
+    tagCtx.beginPath();
+    tagCtx.arc(24, 32, 8, 0, Math.PI * 2);
+    tagCtx.fill();
+
+    // Name & Distance
+    tagCtx.fillStyle = '#ffffff';
+    tagCtx.font = 'bold 20px sans-serif';
+    tagCtx.fillText(name.slice(0, 10), 40, 28);
+
+    tagCtx.fillStyle = '#38bdf8';
+    tagCtx.font = 'bold 16px sans-serif';
+    tagCtx.fillText(relativeDistText, 40, 50);
+
+    tagTexture.needsUpdate = true;
+  };
+
   // Animation Update function
-  const updateAnimation = (time: number, speed: number, isJumping: boolean, isSliding: boolean, isAlive: boolean) => {
+  const updateAnimation = (
+    time: number,
+    speed: number,
+    isJumping: boolean,
+    isSliding: boolean,
+    isAlive: boolean,
+    isCelebrating?: boolean,
+    celebrationElapsed: number = 0
+  ) => {
+    // 1. Victory Celebration Animation
+    if (isCelebrating) {
+      if (celebrationElapsed < 0.6) {
+        // Fast energetic run-up
+        const sprintSwing = Math.sin(time * 26);
+        hips.position.y = 0.88 + Math.abs(Math.cos(time * 26)) * 0.12;
+        hips.rotation.x = 0.1;
+        hips.rotation.z = 0;
+        leftLeg.rotation.x = sprintSwing * 0.9;
+        rightLeg.rotation.x = -sprintSwing * 0.9;
+        leftArm.rotation.x = -sprintSwing * 1.0;
+        rightArm.rotation.x = sprintSwing * 1.0;
+        headGroup.rotation.x = -0.1;
+      } else if (celebrationElapsed < 1.6) {
+        // Upward Victory Jump Arc!
+        const jumpProgress = (celebrationElapsed - 0.6) / 1.0;
+        const jumpHeight = Math.sin(jumpProgress * Math.PI) * 2.2;
+        hips.position.y = 0.88 + jumpHeight;
+        hips.rotation.x = THREE.MathUtils.damp(hips.rotation.x, -0.15, 10, 0.016);
+        
+        // Arms raise high in triumphant 'V' victory pose!
+        leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, -2.6, 12, 0.016);
+        rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, -2.6, 12, 0.016);
+        leftArm.rotation.z = -0.4;
+        rightArm.rotation.z = 0.4;
+
+        // Legs tuck together
+        leftLeg.rotation.x = THREE.MathUtils.damp(leftLeg.rotation.x, 0.5, 10, 0.016);
+        rightLeg.rotation.x = THREE.MathUtils.damp(rightLeg.rotation.x, 0.5, 10, 0.016);
+        headGroup.rotation.x = -0.3; // Looking up proudly
+      } else {
+        // Safe athletic triumphant landing pose
+        hips.position.y = THREE.MathUtils.damp(hips.position.y, 0.55, 12, 0.016);
+        hips.rotation.x = 0.2;
+        leftLeg.rotation.x = -0.4;
+        rightLeg.rotation.x = 0.6;
+        
+        // Right fist pumping high in the air
+        rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, -2.8, 12, 0.016);
+        rightArm.rotation.z = 0.2;
+        leftArm.rotation.x = 0.4; // Resting on thigh
+        leftArm.rotation.z = -0.2;
+        headGroup.rotation.x = -0.2;
+      }
+      return;
+    }
+
     if (!isAlive) {
       // Knockout ragdoll pose
       hips.position.y = THREE.MathUtils.damp(hips.position.y, 0.25, 10, 0.016);
@@ -343,6 +465,8 @@ export function createCharacterModel(characterId: CharacterId = 'cyber_dash', is
 
     leftArm.rotation.x = -swing * 0.85;
     rightArm.rotation.x = swing * 0.85;
+    leftArm.rotation.z = 0;
+    rightArm.rotation.z = 0;
 
     // Slight torso bobbing
     hips.position.y = 0.88 + Math.abs(Math.cos(time * strideFreq)) * 0.08;
@@ -353,6 +477,7 @@ export function createCharacterModel(characterId: CharacterId = 'cyber_dash', is
     // Dispose geometries and materials
     [torsoGeo, coreGeo, packGeo, thrusterGeo, helmetGeo, visorGeo, thighGeo, shinGeo, bootGeo, armGeo, shieldGeo, ringGeo].forEach(g => g.dispose());
     [armorMat, undersuitMat, glowMat, visorMat, shieldMat, ringMat].forEach(m => m.dispose());
+    if (tagTexture) tagTexture.dispose();
   };
 
   return {
@@ -364,9 +489,11 @@ export function createCharacterModel(characterId: CharacterId = 'cyber_dash', is
     torso,
     head: headGroup,
     visor,
+    nameSprite,
     shieldSphere,
     magnetRings,
     updateAnimation,
+    updateTag,
     dispose
   };
 }

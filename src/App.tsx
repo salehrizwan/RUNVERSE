@@ -47,6 +47,8 @@ export default function App() {
   const [currentDistance, setCurrentDistance] = useState(0);
   const [runCoins, setRunCoins] = useState(0);
   const [currentSpeed, setCurrentSpeed] = useState(18);
+  const [activeRunTime, setActiveRunTime] = useState(0);
+  const [previousBest, setPreviousBest] = useState(0);
   const [activeShield, setActiveShield] = useState(false);
   const [magnetTimer, setMagnetTimer] = useState(0);
   const [multiplierTimer, setMultiplierTimer] = useState(0);
@@ -130,11 +132,12 @@ export default function App() {
 
   // Engine Callbacks
   const handleScoreUpdate = useCallback(
-    (score: number, distance: number, coins: number, speed: number) => {
+    (score: number, distance: number, coins: number, speed: number, runTime: number) => {
       setCurrentScore(score);
       setCurrentDistance(distance);
       setRunCoins(coins);
       setCurrentSpeed(speed);
+      setActiveRunTime(runTime);
     },
     []
   );
@@ -150,25 +153,35 @@ export default function App() {
 
   const handleGameOver = useCallback(
     (finalScore: number, finalDistance: number, coinsEarned: number, reason: string) => {
+      const prevBest = saveData.personalBest;
+      setPreviousBest(prevBest);
+
       const stats = recordRunStats(finalScore, finalDistance, coinsEarned);
       const updatedSave = loadSaveData();
       setSaveData(updatedSave);
+
+      const isNewBest = stats.isNewPersonalBest;
 
       setGameOverDetails({
         finalScore,
         finalDistance,
         coinsEarned,
         reason,
-        isNewBest: stats.isNewPersonalBest,
+        isNewBest,
       });
       setGameStatus('gameover');
 
-      // Notify multiplayer room of elimination
+      // Trigger 3D victory celebration animation on player character if new record!
+      if (isNewBest && engine) {
+        engine.triggerCelebration(true);
+      }
+
+      // Notify multiplayer room of elimination (other player continues!)
       if (mpManagerRef.current && activeRoom) {
         mpManagerRef.current.sendElimination(finalScore, finalDistance);
       }
     },
-    [activeRoom]
+    [activeRoom, engine, saveData.personalBest]
   );
 
   const handlePlayerStateEmit = useCallback(
@@ -188,7 +201,7 @@ export default function App() {
   };
 
   // Game Actions
-  const handleStartRun = () => {
+  const handleStartRun = (seed?: number, assignedColor?: string) => {
     soundManager.ensureContext();
     setShowWorldSelect(false);
     setShowCharSelect(false);
@@ -197,7 +210,7 @@ export default function App() {
     setShowSettings(false);
 
     if (engine) {
-      engine.startRun();
+      engine.startRun(seed, assignedColor);
       setGameStatus('running');
     }
   };
@@ -217,7 +230,12 @@ export default function App() {
   };
 
   const handleRestart = () => {
-    handleStartRun();
+    if (activeRoom) {
+      const myColor = mpManagerRef.current?.getAssignedColor() || '#06b6d4';
+      handleStartRun(activeRoom.seed, myColor);
+    } else {
+      handleStartRun();
+    }
   };
 
   const handleReturnToMenu = () => {
@@ -276,7 +294,8 @@ export default function App() {
     setActiveRoom(room);
     setShowMultiplayer(false);
     handleSelectWorld(room.worldId);
-    handleStartRun();
+    const myColor = mpManagerRef.current?.getAssignedColor() || '#06b6d4';
+    handleStartRun(room.seed, myColor);
   };
 
   return (
@@ -294,7 +313,7 @@ export default function App() {
       {gameStatus === 'menu' && (
         <MainMenu
           saveData={saveData}
-          onPlayOffline={handleStartRun}
+          onPlayOffline={() => handleStartRun()}
           onOpenMultiplayer={() => setShowMultiplayer(true)}
           onOpenWorldSelect={() => setShowWorldSelect(true)}
           onOpenCharacterSelect={() => setShowCharSelect(true)}
@@ -313,6 +332,8 @@ export default function App() {
             distance={currentDistance}
             coins={runCoins}
             speed={currentSpeed}
+            activeRunTime={activeRunTime}
+            personalBest={saveData.personalBest}
             activeShield={activeShield}
             magnetTimer={magnetTimer}
             multiplierTimer={multiplierTimer}
@@ -341,7 +362,7 @@ export default function App() {
         />
       )}
 
-      {/* Game Over Modal */}
+      {/* Game Over Modal / New Personal Best Celebration Modal */}
       {gameStatus === 'gameover' && (
         <GameOverModal
           score={gameOverDetails.finalScore}
@@ -350,6 +371,7 @@ export default function App() {
           reason={gameOverDetails.reason}
           isNewBest={gameOverDetails.isNewBest}
           personalBest={saveData.personalBest}
+          previousBest={previousBest}
           onRestart={handleRestart}
           onMainMenu={handleReturnToMenu}
         />

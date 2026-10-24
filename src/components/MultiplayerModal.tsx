@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Users, Copy, Check, Play, UserPlus, LogIn, ArrowRight } from 'lucide-react';
-import { MultiplayerRoom, MultiplayerPlayerState, WorldId, CharacterId } from '../types/game';
+import { X, Users, Copy, Check, Play, UserPlus, LogIn, ArrowRight, Wifi, WifiOff, Server, RefreshCw } from 'lucide-react';
+import { MultiplayerRoom, MultiplayerPlayerState, WorldId, CharacterId, ConnectionStatus } from '../types/game';
 import { MultiplayerManager } from '../multiplayer/multiplayerManager';
 
 interface MultiplayerModalProps {
@@ -23,21 +23,33 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [currentRoom, setCurrentRoom] = useState<MultiplayerRoom | null>(multiplayerManager.getCurrentRoom());
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(multiplayerManager.getConnectionStatus());
   const [copied, setCopied] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [showServerConfig, setShowServerConfig] = useState(false);
+  const [customUrlInput, setCustomUrlInput] = useState(multiplayerManager.getCustomServerUrl() || '');
 
   useEffect(() => {
     multiplayerManager.updateProfile(playerName, selectedCharacter);
+    setConnectionStatus(multiplayerManager.getConnectionStatus());
 
     const unsubscribe = multiplayerManager.onEvent((event) => {
-      if (event.type === 'ROOM_CREATED' || event.type === 'PLAYER_JOINED' || event.type === 'PLAYER_READY') {
+      if (event.type === 'CONNECTION_STATUS') {
+        setConnectionStatus(event.status);
+        if (event.message && event.status === 'error') {
+          setErrorMsg(event.message);
+        }
+      } else if (event.type === 'ROOM_CREATED' || event.type === 'ROOM_JOINED' || event.type === 'PLAYER_JOINED' || event.type === 'PLAYER_READY') {
         setCurrentRoom({ ...event.room });
+        setErrorMsg('');
       } else if (event.type === 'SESSION_START') {
         setCurrentRoom({ ...event.room });
         setCountdown(event.countdown);
       } else if (event.type === 'PLAYER_LEFT') {
         setCurrentRoom(multiplayerManager.getCurrentRoom());
+      } else if (event.type === 'ERROR') {
+        setErrorMsg(event.message);
       }
     });
 
@@ -63,22 +75,16 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
   const handleCreateRoom = () => {
     setErrorMsg('');
-    const code = multiplayerManager.createRoom(selectedWorld);
-    setCurrentRoom(multiplayerManager.getCurrentRoom());
+    multiplayerManager.createRoom(selectedWorld);
   };
 
   const handleJoinRoom = () => {
     if (!roomCodeInput.trim()) {
-      setErrorMsg('Please enter a room code.');
+      setErrorMsg('Please enter a 5-character room code.');
       return;
     }
     setErrorMsg('');
-    const res = multiplayerManager.joinRoom(roomCodeInput);
-    if (!res.success) {
-      setErrorMsg(res.message);
-    } else {
-      setCurrentRoom(multiplayerManager.getCurrentRoom());
-    }
+    multiplayerManager.joinRoom(roomCodeInput);
   };
 
   const handleCopyCode = () => {
@@ -99,15 +105,20 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     setCountdown(null);
   };
 
+  const handleSaveCustomServer = () => {
+    multiplayerManager.setCustomServerUrl(customUrlInput);
+    setShowServerConfig(false);
+  };
+
   const localId = multiplayerManager.getPlayerId();
   const players = currentRoom ? Object.values(currentRoom.players) : [];
   const localPlayer = currentRoom ? currentRoom.players[localId] : null;
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-xl cyber-panel p-6 sm:p-8 rounded-2xl flex flex-col shadow-2xl relative">
+      <div className="w-full max-w-xl cyber-panel p-6 sm:p-8 rounded-2xl flex flex-col shadow-2xl relative max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-6">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-purple-950 border border-purple-500/50 flex items-center justify-center text-purple-400">
               <Users className="w-5 h-5" />
@@ -117,7 +128,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                 MULTIPLAYER RUNNERS
               </h2>
               <p className="text-xs text-slate-400">
-                Live 2-player synchronized endless run session
+                Online 2-player shared 3D race session
               </p>
             </div>
           </div>
@@ -132,15 +143,90 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           </button>
         </div>
 
+        {/* Server Connection Status Strip */}
+        <div className="flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-xl px-3.5 py-2 mb-4 text-xs font-mono">
+          <div className="flex items-center gap-2">
+            {connectionStatus === 'connected' ? (
+              <>
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+                <span className="text-emerald-400 font-bold">ONLINE SERVER CONNECTED</span>
+              </>
+            ) : connectionStatus === 'connecting' ? (
+              <>
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+                <span className="text-amber-400 font-bold">CONNECTING TO SERVER...</span>
+              </>
+            ) : (
+              <>
+                <div className="w-2.5 h-2.5 rounded-full bg-rose-400" />
+                <span className="text-rose-400 font-bold">DISCONNECTED</span>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => multiplayerManager.reconnect()}
+              className="text-[10px] text-slate-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer"
+              title="Reconnect"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Retry</span>
+            </button>
+            <span className="text-slate-600">|</span>
+            <button
+              onClick={() => setShowServerConfig(!showServerConfig)}
+              className="text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer"
+            >
+              <Server className="w-3 h-3" />
+              <span>Server Config</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Collapsible Server Config */}
+        {showServerConfig && (
+          <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 mb-4 animate-in fade-in">
+            <span className="text-xs font-bold text-slate-300 font-display uppercase block mb-1.5">
+              CUSTOM WEBSOCKET BACKEND URL
+            </span>
+            <p className="text-[11px] text-slate-400 mb-2">
+              Default connects to the current host. To connect across external internet networks, enter your public WebSocket URL (e.g. <code>wss://runverse.onrender.com/ws</code>).
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={customUrlInput}
+                onChange={(e) => setCustomUrlInput(e.target.value)}
+                placeholder="e.g. wss://my-runverse.onrender.com/ws"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-cyan-300 focus:outline-none focus:border-cyan-400 font-mono"
+              />
+              <button
+                onClick={handleSaveCustomServer}
+                className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs rounded-lg uppercase cursor-pointer"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Countdown Overlay when starting */}
         {countdown !== null && (
           <div className="absolute inset-0 bg-black/90 rounded-2xl flex flex-col items-center justify-center z-20 animate-in fade-in">
             <span className="text-xs font-bold text-cyan-400 tracking-widest uppercase font-display mb-2">
-              SESSION LAUNCH IN
+              SHARED 3D RACE LAUNCHING IN
             </span>
             <span className="text-8xl font-black text-white font-display animate-ping">
               {countdown > 0 ? countdown : 'GO!'}
             </span>
+          </div>
+        )}
+
+        {/* Error Banner */}
+        {errorMsg && (
+          <div className="bg-rose-950/60 border border-rose-500/50 text-rose-300 text-xs px-3.5 py-2 rounded-xl mb-4 font-mono">
+            {errorMsg}
           </div>
         )}
 
@@ -175,12 +261,18 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             {activeTab === 'create' ? (
               <div className="flex flex-col items-center text-center py-4">
                 <p className="text-sm text-slate-300 mb-6 max-w-sm">
-                  Host an endless runner session in <span className="text-cyan-400 font-bold uppercase">{selectedWorld}</span>. A unique 5-letter code will be generated for your friend.
+                  Host an endless 3D race in <span className="text-cyan-400 font-bold uppercase">{selectedWorld}</span>. A unique 5-letter code will be generated for your friend on any computer to join.
                 </p>
                 <button
                   onClick={handleCreateRoom}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 font-bold text-white font-display tracking-wide uppercase shadow-lg transition-transform active:scale-95 cursor-pointer"
+                  disabled={connectionStatus !== 'connected'}
+                  className={`w-full py-3.5 rounded-xl font-bold font-display tracking-wide uppercase shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-2 ${
+                    connectionStatus === 'connected'
+                      ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white cursor-pointer'
+                      : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  }`}
                 >
+                  <UserPlus className="w-4 h-4" />
                   GENERATE ROOM CODE & HOST
                 </button>
               </div>
@@ -200,17 +292,19 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                   />
                   <button
                     onClick={handleJoinRoom}
-                    className="px-6 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 font-bold text-slate-950 font-display uppercase tracking-wider transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5"
+                    disabled={connectionStatus !== 'connected'}
+                    className={`px-6 rounded-xl font-bold font-display uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center gap-1.5 ${
+                      connectionStatus === 'connected'
+                        ? 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 cursor-pointer'
+                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    }`}
                   >
                     JOIN
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
-                {errorMsg && (
-                  <p className="text-xs text-rose-400 font-medium mb-2">{errorMsg}</p>
-                )}
                 <p className="text-xs text-slate-500 text-center">
-                  Tip: Open a second tab in your browser and enter the host code to test simultaneous runs!
+                  Share this code with a friend on another computer across the internet to join the same 3D race!
                 </p>
               </div>
             )}
@@ -219,9 +313,9 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           /* Active Room Lobby */
           <div className="flex flex-col">
             {/* Room Code Display */}
-            <div className="bg-slate-900/90 border border-purple-500/40 rounded-xl p-4 flex items-center justify-between mb-6">
+            <div className="bg-slate-900/90 border border-purple-500/40 rounded-xl p-4 flex items-center justify-between mb-4">
               <div>
-                <span className="text-[10px] uppercase font-bold text-purple-400 tracking-wider">
+                <span className="text-[10px] uppercase font-bold text-purple-400 tracking-wider block">
                   ROOM CODE (SHARE WITH FRIEND)
                 </span>
                 <div className="text-3xl font-black text-white font-display tracking-widest">
@@ -237,24 +331,38 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               </button>
             </div>
 
-            {/* Players Status Box */}
+            {/* Players Status & Assigned Outfits / Colors */}
             <div className="space-y-3 mb-6">
-              <span className="text-xs font-bold text-slate-400 uppercase font-display">
-                RUNNERS IN LOBBY ({players.length}/2)
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-400 uppercase font-display">
+                  RUNNERS IN LOBBY ({players.length}/2)
+                </span>
+                <span className="text-[10px] text-cyan-400 font-mono">
+                  World: {currentRoom.worldId.toUpperCase()} • Seed: #{currentRoom.seed % 10000}
+                </span>
+              </div>
 
               {/* Player 1 (Host) */}
               <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-cyan-950 border border-cyan-400/50 flex items-center justify-center font-black text-cyan-400 font-display text-xs">
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-slate-950 font-display text-xs"
+                    style={{ backgroundColor: players[0]?.assignedColor || '#06b6d4' }}
+                  >
                     P1
                   </div>
                   <div>
-                    <div className="text-sm font-bold text-white font-display">
-                      {players[0]?.name || 'Waiting for host...'}
+                    <div className="text-sm font-bold text-white font-display flex items-center gap-2">
+                      <span>{players[0]?.name || 'Waiting for host...'}</span>
+                      <span
+                        className="text-[9px] font-bold px-1.5 py-0.2 rounded uppercase"
+                        style={{ backgroundColor: `${players[0]?.assignedColor || '#06b6d4'}33`, color: players[0]?.assignedColor || '#06b6d4' }}
+                      >
+                        {players[0]?.colorName || 'Cyan / Blue'}
+                      </span>
                     </div>
                     <span className="text-[10px] text-slate-400 uppercase font-mono">
-                      Host • {players[0]?.characterId}
+                      Host • {players[0]?.characterId?.replace('_', ' ')}
                     </span>
                   </div>
                 </div>
@@ -274,17 +382,26 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               {/* Player 2 (Guest) */}
               <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-pink-950 border border-pink-400/50 flex items-center justify-center font-black text-pink-400 font-display text-xs">
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-slate-950 font-display text-xs"
+                    style={{ backgroundColor: players[1]?.assignedColor || '#ec4899' }}
+                  >
                     P2
                   </div>
                   <div>
                     {players[1] ? (
                       <>
-                        <div className="text-sm font-bold text-white font-display">
-                          {players[1].name}
+                        <div className="text-sm font-bold text-white font-display flex items-center gap-2">
+                          <span>{players[1].name}</span>
+                          <span
+                            className="text-[9px] font-bold px-1.5 py-0.2 rounded uppercase"
+                            style={{ backgroundColor: `${players[1]?.assignedColor || '#ec4899'}33`, color: players[1]?.assignedColor || '#ec4899' }}
+                          >
+                            {players[1]?.colorName || 'Pink / Magenta'}
+                          </span>
                         </div>
                         <span className="text-[10px] text-slate-400 uppercase font-mono">
-                          Guest • {players[1].characterId}
+                          Guest • {players[1]?.characterId?.replace('_', ' ')}
                         </span>
                       </>
                     ) : (
@@ -293,7 +410,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                           Waiting for friend to join...
                         </div>
                         <span className="text-[10px] text-slate-600 font-mono">
-                          Share code {currentRoom.code}
+                          Friend enters code {currentRoom.code} on their computer
                         </span>
                       </>
                     )}
