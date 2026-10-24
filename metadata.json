@@ -1,0 +1,6 @@
+{
+  "name": "RUNVERSE - 3D Endless Runner",
+  "description": "High-octane 3D endless runner browser game featuring multiple cyberpunk and ancient worlds, character customization, rich procedural tracks, and real-time 2-player multiplayer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function() {
+        try {
+          let _currentFetch = window.fetch ? window.fetch.bind(window) : undefined;
+          const descriptor = {
+            get: function() {
+              return _currentFetch;
+            },
+            set: function(fn) {
+              _currentFetch = fn;
+            },
+            configurable: true,
+            enumerable: true
+          };
+          try {
+            Object.defineProperty(window, 'fetch', descriptor);
+          } catch (e1) {
+            try {
+              Object.defineProperty(Window.prototype, 'fetch', descriptor);
+            } catch (e2) {}
+          }
+        } catch (_) {}
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>RUNVERSE - 3D Endless Runner</title>
+    <meta name="description" content="High-octane 3D endless runner browser game featuring multiple cyberpunk and ancient worlds, character customization, rich procedural tracks, and real-time 2-player multiplayer." />
+    <meta property="og:title" content="RUNVERSE - 3D Endless Runner" />
+    <meta property="og:description" content="High-octane 3D endless runner browser game featuring multiple cyberpunk and ancient worlds, character customization, rich procedural tracks, and real-time 2-player multiplayer." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,400;0,600;0,700;1,700&family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@600;800;900&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-black text-white select-none overflow-hidden m-0 p-0 antialiased font-sans">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
