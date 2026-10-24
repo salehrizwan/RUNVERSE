@@ -46,12 +46,14 @@ export default function App() {
   const [currentScore, setCurrentScore] = useState(0);
   const [currentDistance, setCurrentDistance] = useState(0);
   const [runCoins, setRunCoins] = useState(0);
-  const [currentSpeed, setCurrentSpeed] = useState(18);
+  const [currentSpeed, setCurrentSpeed] = useState(16);
   const [activeRunTime, setActiveRunTime] = useState(0);
   const [previousBest, setPreviousBest] = useState(0);
   const [activeShield, setActiveShield] = useState(false);
   const [magnetTimer, setMagnetTimer] = useState(0);
   const [multiplierTimer, setMultiplierTimer] = useState(0);
+  const [hoverboardTimer, setHoverboardTimer] = useState(0);
+  const [gliderTimer, setGliderTimer] = useState(0);
 
   // GameOver Details
   const [gameOverDetails, setGameOverDetails] = useState<{
@@ -143,10 +145,12 @@ export default function App() {
   );
 
   const handlePowerUpUpdate = useCallback(
-    (shield: boolean, magnet: number, multiplier: number) => {
+    (shield: boolean, magnet: number, multiplier: number, hoverboard: number, glider: number) => {
       setActiveShield(shield);
       setMagnetTimer(magnet);
       setMultiplierTimer(multiplier);
+      setHoverboardTimer(hoverboard);
+      setGliderTimer(glider);
     },
     []
   );
@@ -337,6 +341,8 @@ export default function App() {
             activeShield={activeShield}
             magnetTimer={magnetTimer}
             multiplierTimer={multiplierTimer}
+            hoverboardTimer={hoverboardTimer}
+            gliderTimer={gliderTimer}
             opponent={opponentState}
             onPause={handlePause}
           />
@@ -346,6 +352,9 @@ export default function App() {
               onRight={() => engine.moveRight()}
               onJump={() => engine.jump()}
               onSlide={() => engine.slide()}
+              onBoost={(active) => engine.boost(active)}
+              onBrake={(active) => engine.brake(active)}
+              isGliding={gliderTimer > 0}
             />
           )}
         </>

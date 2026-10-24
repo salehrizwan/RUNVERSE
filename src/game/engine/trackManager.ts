@@ -357,22 +357,28 @@ export class TrackManager {
         });
       }
 
-      // Rare Power-Up Spawn (10% chance per segment event)
-      if (this.rng() < 0.14) {
-        const pTypes: CollectibleType[] = ['shield', 'magnet', 'multiplier'];
+      // Power-Up Spawning (Shield, Magnet, Multiplier, Hoverboard, Glider)
+      if (this.rng() < 0.18) {
+        const pTypes: CollectibleType[] = ['hoverboard', 'glider', 'shield', 'magnet', 'multiplier'];
         const pType = pTypes[Math.floor(this.rng() * pTypes.length)];
         const pLane = Math.floor(this.rng() * 3) - 1;
 
-        const pColor = pType === 'shield' ? 0x06b6d4 : (pType === 'magnet' ? 0xf59e0b : 0xa855f7);
+        let pColor = 0x06b6d4; // Default cyan
+        if (pType === 'hoverboard') pColor = 0x10b981; // Emerald green hoverboard
+        else if (pType === 'glider') pColor = 0xa855f7; // Purple glider
+        else if (pType === 'magnet') pColor = 0xf59e0b; // Amber magnet
+        else if (pType === 'multiplier') pColor = 0xec4899; // Pink multiplier
+        else if (pType === 'shield') pColor = 0x06b6d4; // Cyan shield
+
         const pMat = new THREE.MeshStandardMaterial({
           color: pColor,
           emissive: pColor,
-          emissiveIntensity: 1.2,
+          emissiveIntensity: 1.3,
           roughness: 0.2
         });
 
         const pMesh = new THREE.Mesh(this.powerupGeo, pMat);
-        pMesh.position.set(LANES[pLane + 1], 1.1, localZ - 6);
+        pMesh.position.set(LANES[pLane + 1], 1.15, localZ - 6);
         meshGroup.add(pMesh);
 
         collectibles.push({
@@ -380,10 +386,31 @@ export class TrackManager {
           type: pType,
           lane: pLane,
           z: worldZ - 6,
-          y: 1.1,
+          y: 1.15,
           collected: false,
           mesh: pMesh
         });
+
+        // If Glider spawned, add an elevated aerial coin trail down the track at Y = 3.8m!
+        if (pType === 'glider') {
+          for (let ac = -5; ac <= 5; ac++) {
+            const aerialZ = worldZ - 12 + ac * 2.2;
+            const aerialY = 3.75 + Math.sin((ac / 5) * Math.PI) * 0.4;
+            const aerialCoinMesh = new THREE.Mesh(this.coinGeo, this.coinMat);
+            aerialCoinMesh.position.set(LANES[pLane + 1], aerialY, (localZ - 12) + ac * 2.2);
+            meshGroup.add(aerialCoinMesh);
+
+            collectibles.push({
+              id: this.nextCollectibleId++,
+              type: 'coin',
+              lane: pLane,
+              z: aerialZ,
+              y: aerialY,
+              collected: false,
+              mesh: aerialCoinMesh
+            });
+          }
+        }
       }
     });
   }

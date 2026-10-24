@@ -14,7 +14,7 @@ export type ObstacleType =
   | 'moving_drone'     // Dynamic drone moving down track
   | 'laser_gate';      // Pulsing laser gate (jump or slide based on height)
 
-export type CollectibleType = 'coin' | 'magnet' | 'shield' | 'multiplier';
+export type CollectibleType = 'coin' | 'magnet' | 'shield' | 'multiplier' | 'hoverboard' | 'glider';
 
 export interface CharacterDef {
   id: CharacterId;
@@ -106,6 +106,10 @@ export interface PlayerRunState {
   activeShield: boolean;
   magnetTimer: number;   // Remaining magnet time
   multiplierTimer: number; // Remaining 2x multiplier time
+  hoverboardTimer: number; // Protective hoverboard duration (or until crash absorbed)
+  gliderTimer: number;     // Glider / parachute flight duration
+  isGliding: boolean;
+  speedControlState: 'normal' | 'boost' | 'brake';
   isAlive: boolean;
   deathReason?: string;
   isCelebrating?: boolean;
@@ -127,6 +131,8 @@ export interface MultiplayerPlayerState {
   score: number;
   isSliding: boolean;
   isJumping: boolean;
+  isGliding?: boolean;
+  hoverboard?: boolean;
   isAlive: boolean;
   isReady: boolean;
   assignedColor: string;

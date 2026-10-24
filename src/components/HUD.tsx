@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pause, Shield, Magnet, Zap, Coins, Flame, User, Trophy, Sparkles, Timer } from 'lucide-react';
+import { Pause, Shield, Magnet, Zap, Coins, Flame, Trophy, Sparkles, Timer, Wind } from 'lucide-react';
 import { MultiplayerPlayerState } from '../types/game';
 
 interface HUDProps {
@@ -12,6 +12,8 @@ interface HUDProps {
   activeShield: boolean;
   magnetTimer: number;
   multiplierTimer: number;
+  hoverboardTimer: number;
+  gliderTimer: number;
   opponent: MultiplayerPlayerState | null;
   onPause: () => void;
 }
@@ -26,6 +28,8 @@ export const HUD: React.FC<HUDProps> = ({
   activeShield,
   magnetTimer,
   multiplierTimer,
+  hoverboardTimer,
+  gliderTimer,
   opponent,
   onPause,
 }) => {
@@ -40,7 +44,7 @@ export const HUD: React.FC<HUDProps> = ({
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-3 sm:p-6 select-none z-10 overflow-hidden">
       {/* Top Header Bar */}
       <div className="flex items-start justify-between w-full gap-2">
-        {/* Left: Score & Active Time */}
+        {/* Left: Score, Time & Speed Progression */}
         <div className="flex flex-col gap-0.5 sm:gap-1">
           <div className="flex items-center gap-2">
             <span className="text-[11px] sm:text-xs uppercase tracking-widest text-cyan-400 font-semibold font-display">
@@ -49,6 +53,11 @@ export const HUD: React.FC<HUDProps> = ({
             {multiplierTimer > 0 && (
               <span className="bg-gradient-to-r from-pink-500 to-purple-600 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-wider animate-pulse">
                 2X TIME BOOST
+              </span>
+            )}
+            {gliderTimer > 0 && (
+              <span className="bg-gradient-to-r from-purple-500 to-indigo-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                GLIDER FLIGHT
               </span>
             )}
           </div>
@@ -65,10 +74,11 @@ export const HUD: React.FC<HUDProps> = ({
               <span>{activeRunTime.toFixed(1)}s</span>
             </span>
             <span className="text-slate-600">•</span>
-            <span className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <Flame className="w-3.5 h-3.5 text-amber-400" />
-              <span className="text-amber-400 font-bold">{speed}</span> m/s
-            </span>
+              <span className="text-amber-400 font-bold font-mono">{speed}</span>
+              <span className="text-[11px] text-slate-400">m/s</span>
+            </div>
           </div>
         </div>
 
@@ -186,23 +196,37 @@ export const HUD: React.FC<HUDProps> = ({
       )}
 
       {/* Bottom Floating Power-Up HUD Indicators */}
-      <div className="flex items-center justify-center gap-3 pb-2 sm:pb-4 pointer-events-none">
+      <div className="flex flex-wrap items-center justify-center gap-2.5 pb-2 sm:pb-4 pointer-events-none">
+        {hoverboardTimer > 0 && (
+          <div className="flex items-center gap-2 bg-emerald-950/90 border border-emerald-400/80 px-3.5 py-1.5 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.3)] text-emerald-300 text-xs font-bold tracking-wide backdrop-blur-md">
+            <span className="text-sm">🛹</span>
+            <span>HOVERBOARD SHIELD ({Math.ceil(hoverboardTimer)}s)</span>
+          </div>
+        )}
+
+        {gliderTimer > 0 && (
+          <div className="flex items-center gap-2 bg-purple-950/90 border border-purple-400/80 px-3.5 py-1.5 rounded-xl shadow-[0_0_15px_rgba(168,85,247,0.3)] text-purple-300 text-xs font-bold tracking-wide backdrop-blur-md">
+            <Wind className="w-4 h-4 text-purple-300 animate-pulse" />
+            <span>GLIDER FLIGHT ({Math.ceil(gliderTimer)}s)</span>
+          </div>
+        )}
+
         {activeShield && (
-          <div className="flex items-center gap-2 bg-cyan-950/90 border border-cyan-400/80 px-3.5 py-1.5 rounded-lg shadow-lg text-cyan-300 text-xs font-bold tracking-wide">
+          <div className="flex items-center gap-2 bg-cyan-950/90 border border-cyan-400/80 px-3.5 py-1.5 rounded-xl shadow-lg text-cyan-300 text-xs font-bold tracking-wide backdrop-blur-md">
             <Shield className="w-4 h-4 text-cyan-400 fill-cyan-400/20 animate-pulse" />
             <span>KINETIC SHIELD</span>
           </div>
         )}
 
         {magnetTimer > 0 && (
-          <div className="flex items-center gap-2 bg-amber-950/90 border border-amber-400/80 px-3.5 py-1.5 rounded-lg shadow-lg text-amber-300 text-xs font-bold tracking-wide">
+          <div className="flex items-center gap-2 bg-amber-950/90 border border-amber-400/80 px-3.5 py-1.5 rounded-xl shadow-lg text-amber-300 text-xs font-bold tracking-wide backdrop-blur-md">
             <Magnet className="w-4 h-4 text-amber-400 animate-bounce" />
             <span>MAGNET ({Math.ceil(magnetTimer)}s)</span>
           </div>
         )}
 
         {multiplierTimer > 0 && (
-          <div className="flex items-center gap-2 bg-pink-950/90 border border-pink-400/80 px-3.5 py-1.5 rounded-lg shadow-lg text-pink-300 text-xs font-bold tracking-wide">
+          <div className="flex items-center gap-2 bg-pink-950/90 border border-pink-400/80 px-3.5 py-1.5 rounded-xl shadow-lg text-pink-300 text-xs font-bold tracking-wide backdrop-blur-md">
             <Zap className="w-4 h-4 text-pink-400 fill-pink-400/30" />
             <span>2X TIME BOOST ({Math.ceil(multiplierTimer)}s)</span>
           </div>

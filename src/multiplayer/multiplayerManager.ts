@@ -1,7 +1,7 @@
 /**
  * RUNVERSE Real-Time Online Multiplayer Client
- * Handles real WebSocket server connections, room codes, state relays,
- * lag-compensated player synchronization, and graceful reconnects.
+ * Handles real WebSocket server connections with seamless HTTP REST sync fallback,
+ * room codes, player states, lag-compensated player synchronization, and reconnection.
  */
 
 import { MultiplayerRoom, MultiplayerPlayerState, WorldId, CharacterId, ConnectionStatus } from '../types/game';
@@ -26,11 +26,14 @@ export class MultiplayerManager {
   private currentRoom: MultiplayerRoom | null = null;
   private ws: WebSocket | null = null;
   private connectionStatus: ConnectionStatus = 'disconnected';
+  private connectionMode: 'ws' | 'http' = 'ws';
   private customServerUrl: string = '';
   private reconnectAttempts = 0;
   private reconnectTimer: number | null = null;
   private pingInterval: number | null = null;
+  private pollInterval: number | null = null;
   private listeners: ((event: MultiplayerEvent) => void)[] = [];
+  private lastKnownOpponentState: Partial<MultiplayerPlayerState> | null = null;
 
   constructor(playerName: string, characterId: CharacterId) {
     this.localPlayerId = 'p_' + Math.random().toString(36).substring(2, 9);
@@ -50,6 +53,10 @@ export class MultiplayerManager {
 
   public getConnectionStatus(): ConnectionStatus {
     return this.connectionStatus;
+  }
+
+  public getConnectionMode(): 'ws' | 'http' {
+    return this.connectionMode;
   }
 
   public getCurrentRoom(): MultiplayerRoom | null {
@@ -119,10 +126,11 @@ export class MultiplayerManager {
 
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
-        this.setConnectionStatus('connected', 'Connected to online game server');
+        this.connectionMode = 'ws';
+        this.setConnectionStatus('connected', 'Connected via WebSocket');
         this.startHeartbeat();
+        this.stopPolling();
 
-        // If we were in a room, re-query room state
         if (this.currentRoom) {
           this.send({
             action: 'GET_ROOM',
@@ -143,21 +151,37 @@ export class MultiplayerManager {
 
       this.ws.onclose = () => {
         this.stopHeartbeat();
-        this.setConnectionStatus('disconnected', 'Disconnected from server');
-        this.scheduleReconnect();
+        // Fall back to checking HTTP server availability
+        this.tryHttpFallback();
       };
 
       this.ws.onerror = () => {
         this.stopHeartbeat();
-        this.setConnectionStatus('error', 'Unable to reach game server');
+        this.tryHttpFallback();
       };
     } catch (e: any) {
-      this.setConnectionStatus('error', e?.message || 'Connection error');
-      this.scheduleReconnect();
+      this.tryHttpFallback();
     }
   }
 
+  private async tryHttpFallback(): Promise<void> {
+    try {
+      const res = await fetch('/api/health');
+      if (res.ok) {
+        this.connectionMode = 'http';
+        this.setConnectionStatus('connected', 'Connected (HTTP Real-Time Sync)');
+        this.startPolling();
+        return;
+      }
+    } catch {}
+
+    this.setConnectionStatus('error', 'Unable to reach game server. Check network or server URL.');
+    this.scheduleReconnect();
+  }
+
   public reconnect(): void {
+    this.stopPolling();
+    this.stopHeartbeat();
     if (this.ws) {
       try {
         this.ws.close();
@@ -198,6 +222,100 @@ export class MultiplayerManager {
     }
   }
 
+  private startPolling(): void {
+    this.stopPolling();
+    // Fast polling when in active room
+    this.pollInterval = window.setInterval(() => {
+      this.pollRoomState();
+    }, 200);
+  }
+
+  private stopPolling(): void {
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+  }
+
+  private async pollRoomState(): Promise<void> {
+    if (!this.currentRoom) return;
+
+    try {
+      const res = await fetch(`/api/rooms/${this.currentRoom.code}/poll?playerId=${this.localPlayerId}`);
+      if (!res.ok) {
+        if (res.status === 404) {
+          this.currentRoom = null;
+          this.dispatch({ type: 'ERROR', message: 'Room has expired or was closed.' });
+        }
+        return;
+      }
+
+      const data = await res.json();
+      if (data && data.room) {
+        const prevRoom = this.currentRoom;
+        const newRoom: MultiplayerRoom = data.room;
+        this.currentRoom = newRoom;
+
+        // Check for opponent joining
+        const newOpponent = Object.values(newRoom.players).find(p => p.id !== this.localPlayerId);
+        const prevOpponent = prevRoom ? Object.values(prevRoom.players).find(p => p.id !== this.localPlayerId) : null;
+
+        if (newOpponent && !prevOpponent) {
+          this.dispatch({ type: 'PLAYER_JOINED', room: newRoom, player: newOpponent });
+        }
+
+        // Check for opponent ready state change
+        if (newOpponent && prevOpponent && newOpponent.isReady !== prevOpponent.isReady) {
+          this.dispatch({
+            type: 'PLAYER_READY',
+            room: newRoom,
+            playerId: newOpponent.id,
+            isReady: newOpponent.isReady
+          });
+        }
+
+        // Check for session start
+        if (newRoom.status === 'countdown' && prevRoom.status !== 'countdown') {
+          this.dispatch({ type: 'SESSION_START', room: newRoom, countdown: 3 });
+        }
+
+        // Check for session completion
+        if (newRoom.status === 'completed' && prevRoom.status !== 'completed') {
+          const combined = Object.values(newRoom.players).reduce((sum, p) => sum + (p.score || 0), 0);
+          this.dispatch({ type: 'SESSION_COMPLETE', room: newRoom, combinedScore: combined });
+        }
+
+        // Update opponent state
+        if (newOpponent) {
+          this.dispatch({
+            type: 'PLAYER_UPDATE',
+            playerId: newOpponent.id,
+            state: {
+              lane: newOpponent.lane,
+              y: newOpponent.y,
+              distance: newOpponent.distance,
+              score: newOpponent.score,
+              isJumping: newOpponent.isJumping,
+              isSliding: newOpponent.isSliding,
+              isGliding: newOpponent.isGliding,
+              hoverboard: newOpponent.hoverboard,
+              isAlive: newOpponent.isAlive
+            }
+          });
+
+          if (!newOpponent.isAlive && prevOpponent && prevOpponent.isAlive) {
+            this.dispatch({
+              type: 'PLAYER_ELIMINATED',
+              playerId: newOpponent.id,
+              finalScore: newOpponent.score,
+              finalDistance: newOpponent.distance
+            });
+          }
+        }
+      }
+    } catch {}
+  }
+
   private setConnectionStatus(status: ConnectionStatus, message?: string): void {
     this.connectionStatus = status;
     this.dispatch({ type: 'CONNECTION_STATUS', status, message });
@@ -224,26 +342,55 @@ export class MultiplayerManager {
 
   // --- Real-time Online Room Actions ---
 
-  public createRoom(worldId: WorldId): void {
+  public async createRoom(worldId: WorldId): Promise<void> {
     if (this.connectionStatus !== 'connected') {
       this.dispatch({
         type: 'ERROR',
-        message: 'Cannot create room: not connected to server. Connecting...'
+        message: 'Cannot create room: not connected to server. Attempting connection...'
       });
       this.connect();
       return;
     }
 
-    this.send({
+    if (this.connectionMode === 'ws' && this.send({
       action: 'CREATE_ROOM',
       playerId: this.localPlayerId,
       playerName: this.playerName,
       characterId: this.characterId,
       worldId
-    });
+    })) {
+      return;
+    }
+
+    // HTTP fallback
+    try {
+      const res = await fetch('/api/rooms/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerId: this.localPlayerId,
+          playerName: this.playerName,
+          characterId: this.characterId,
+          worldId
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to create room via server API');
+      }
+
+      const data = await res.json();
+      if (data.room) {
+        this.currentRoom = data.room;
+        this.startPolling();
+        this.dispatch({ type: 'ROOM_CREATED', room: data.room });
+      }
+    } catch (e: any) {
+      this.dispatch({ type: 'ERROR', message: e.message || 'Error creating room' });
+    }
   }
 
-  public joinRoom(roomCode: string): void {
+  public async joinRoom(roomCode: string): Promise<void> {
     const code = roomCode.trim().toUpperCase();
     if (!code || code.length !== 5) {
       this.dispatch({ type: 'ERROR', message: 'Room code must be exactly 5 characters.' });
@@ -253,22 +400,52 @@ export class MultiplayerManager {
     if (this.connectionStatus !== 'connected') {
       this.dispatch({
         type: 'ERROR',
-        message: 'Cannot join room: not connected to server. Connecting...'
+        message: 'Cannot join room: not connected to server. Attempting connection...'
       });
       this.connect();
       return;
     }
 
-    this.send({
+    if (this.connectionMode === 'ws' && this.send({
       action: 'JOIN_ROOM',
       code,
       playerId: this.localPlayerId,
       playerName: this.playerName,
       characterId: this.characterId
-    });
+    })) {
+      return;
+    }
+
+    // HTTP fallback
+    try {
+      const res = await fetch('/api/rooms/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code,
+          playerId: this.localPlayerId,
+          playerName: this.playerName,
+          characterId: this.characterId
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to join room');
+      }
+
+      const data = await res.json();
+      if (data.room) {
+        this.currentRoom = data.room;
+        this.startPolling();
+        this.dispatch({ type: 'ROOM_JOINED', room: data.room });
+      }
+    } catch (e: any) {
+      this.dispatch({ type: 'ERROR', message: e.message || 'Error joining room' });
+    }
   }
 
-  public toggleReady(): boolean {
+  public async toggleReady(): Promise<boolean> {
     if (!this.currentRoom) return false;
     const player = this.currentRoom.players[this.localPlayerId];
     if (!player) return false;
@@ -276,12 +453,26 @@ export class MultiplayerManager {
     const nextReady = !player.isReady;
     player.isReady = nextReady;
 
-    this.send({
-      action: 'PLAYER_READY',
-      code: this.currentRoom.code,
-      playerId: this.localPlayerId,
-      isReady: nextReady
-    });
+    if (this.connectionMode === 'ws') {
+      this.send({
+        action: 'PLAYER_READY',
+        code: this.currentRoom.code,
+        playerId: this.localPlayerId,
+        isReady: nextReady
+      });
+    } else {
+      try {
+        await fetch(`/api/rooms/${this.currentRoom.code}/ready`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            playerId: this.localPlayerId,
+            isReady: nextReady
+          })
+        });
+        this.pollRoomState();
+      } catch {}
+    }
 
     return nextReady;
   }
@@ -293,12 +484,24 @@ export class MultiplayerManager {
       Object.assign(player, state);
     }
 
-    this.send({
-      action: 'PLAYER_UPDATE',
-      code: this.currentRoom.code,
-      playerId: this.localPlayerId,
-      state
-    });
+    if (this.connectionMode === 'ws') {
+      this.send({
+        action: 'PLAYER_UPDATE',
+        code: this.currentRoom.code,
+        playerId: this.localPlayerId,
+        state
+      });
+    } else {
+      // Fire-and-forget HTTP update
+      fetch(`/api/rooms/${this.currentRoom.code}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerId: this.localPlayerId,
+          state
+        })
+      }).catch(() => {});
+    }
   }
 
   public sendElimination(finalScore: number, finalDistance: number): void {
@@ -310,24 +513,45 @@ export class MultiplayerManager {
       player.distance = finalDistance;
     }
 
-    this.send({
-      action: 'PLAYER_ELIMINATED',
-      code: this.currentRoom.code,
-      playerId: this.localPlayerId,
-      finalScore,
-      finalDistance
-    });
+    if (this.connectionMode === 'ws') {
+      this.send({
+        action: 'PLAYER_ELIMINATED',
+        code: this.currentRoom.code,
+        playerId: this.localPlayerId,
+        finalScore,
+        finalDistance
+      });
+    } else {
+      fetch(`/api/rooms/${this.currentRoom.code}/eliminate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerId: this.localPlayerId,
+          finalScore,
+          finalDistance
+        })
+      }).catch(() => {});
+    }
   }
 
   public leaveRoom(): void {
     if (!this.currentRoom) return;
     const code = this.currentRoom.code;
 
-    this.send({
-      action: 'LEAVE_ROOM',
-      code,
-      playerId: this.localPlayerId
-    });
+    if (this.connectionMode === 'ws') {
+      this.send({
+        action: 'LEAVE_ROOM',
+        code,
+        playerId: this.localPlayerId
+      });
+    } else {
+      fetch(`/api/rooms/${code}/leave`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: this.localPlayerId })
+      }).catch(() => {});
+      this.stopPolling();
+    }
 
     this.currentRoom = null;
   }

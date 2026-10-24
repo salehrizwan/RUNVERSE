@@ -93,6 +93,8 @@ export interface CharacterMeshController {
   jetpackGlow?: THREE.Mesh;
   shieldSphere: THREE.Mesh;
   magnetRings: THREE.Group;
+  hoverboardGroup: THREE.Group;
+  gliderGroup: THREE.Group;
   updateAnimation: (
     time: number,
     speed: number,
@@ -100,7 +102,10 @@ export interface CharacterMeshController {
     isSliding: boolean,
     isAlive: boolean,
     isCelebrating?: boolean,
-    celebrationElapsed?: number
+    celebrationElapsed?: number,
+    hasHoverboard?: boolean,
+    isGliding?: boolean,
+    laneOffset?: number
   ) => void;
   updateTag: (name: string, relativeDistText: string, color: string) => void;
   dispose: () => void;
@@ -309,6 +314,109 @@ export function createCharacterModel(
   magnetRings.visible = false;
   root.add(magnetRings);
 
+  // --- 3D Procedural Hoverboard Mesh (Protective Power-Up) ---
+  const hoverboardGroup = new THREE.Group();
+  hoverboardGroup.name = 'hoverboard';
+  hoverboardGroup.position.set(0, 0.06, 0);
+
+  // Hoverboard Deck
+  const boardDeckGeo = new THREE.BoxGeometry(0.68, 0.06, 1.55);
+  const boardDeckMat = new THREE.MeshStandardMaterial({
+    color: 0x0f172a,
+    metalness: 0.8,
+    roughness: 0.25
+  });
+  const boardDeck = new THREE.Mesh(boardDeckGeo, boardDeckMat);
+  boardDeck.castShadow = true;
+  hoverboardGroup.add(boardDeck);
+
+  // Aerodynamic Neon Trim Rails
+  const boardTrimGeo = new THREE.BoxGeometry(0.72, 0.03, 1.5);
+  const boardTrimMat = new THREE.MeshStandardMaterial({
+    color: 0x06b6d4,
+    emissive: 0x06b6d4,
+    emissiveIntensity: 1.8,
+    roughness: 0.1
+  });
+  const boardTrim = new THREE.Mesh(boardTrimGeo, boardTrimMat);
+  hoverboardGroup.add(boardTrim);
+
+  // Twin Plasma Thrusters Under Deck
+  const thrusterPodGeo = new THREE.CylinderGeometry(0.08, 0.11, 0.14, 12);
+  const thrusterGlowMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+  const boardThrusterL = new THREE.Mesh(thrusterPodGeo, thrusterGlowMat);
+  boardThrusterL.position.set(-0.22, -0.05, -0.45);
+  hoverboardGroup.add(boardThrusterL);
+
+  const boardThrusterR = new THREE.Mesh(thrusterPodGeo, thrusterGlowMat);
+  boardThrusterR.position.set(0.22, -0.05, -0.45);
+  hoverboardGroup.add(boardThrusterR);
+
+  hoverboardGroup.visible = false;
+  root.add(hoverboardGroup);
+
+  // --- 3D Procedural Glider Canopy / Wings (Airborne Flight Power-Up) ---
+  const gliderGroup = new THREE.Group();
+  gliderGroup.name = 'glider';
+  gliderGroup.position.set(0, 1.95, 0);
+
+  // Center Jet Pylon
+  const gliderCoreGeo = new THREE.BoxGeometry(0.35, 0.14, 0.5);
+  const gliderCoreMat = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    metalness: 0.7,
+    roughness: 0.3
+  });
+  const gliderCore = new THREE.Mesh(gliderCoreGeo, gliderCoreMat);
+  gliderGroup.add(gliderCore);
+
+  // Swept Aerodynamic Delta Wings
+  const wingGeo = new THREE.BoxGeometry(1.65, 0.04, 0.65);
+  const wingMat = new THREE.MeshStandardMaterial({
+    color: 0xa855f7,
+    emissive: 0x7c3aed,
+    emissiveIntensity: 0.9,
+    roughness: 0.25,
+    metalness: 0.5
+  });
+
+  const wingL = new THREE.Mesh(wingGeo, wingMat);
+  wingL.position.set(-0.95, 0.05, 0.1);
+  wingL.rotation.set(-0.1, -0.15, -0.12);
+  wingL.castShadow = true;
+  gliderGroup.add(wingL);
+
+  const wingR = new THREE.Mesh(wingGeo, wingMat);
+  wingR.position.set(0.95, 0.05, 0.1);
+  wingR.rotation.set(-0.1, 0.15, 0.12);
+  wingR.castShadow = true;
+  gliderGroup.add(wingR);
+
+  // Wingtip Neon Beacons
+  const beaconGeo = new THREE.SphereGeometry(0.06, 8, 8);
+  const beaconMat = new THREE.MeshBasicMaterial({ color: 0xec4899 });
+  const beaconL = new THREE.Mesh(beaconGeo, beaconMat);
+  beaconL.position.set(-1.75, 0.2, 0.2);
+  gliderGroup.add(beaconL);
+
+  const beaconR = new THREE.Mesh(beaconGeo, beaconMat);
+  beaconR.position.set(1.75, 0.2, 0.2);
+  gliderGroup.add(beaconR);
+
+  // Control Harness / Handles extending down toward hands
+  const handleGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.55);
+  const handleMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8 });
+  const handleL = new THREE.Mesh(handleGeo, handleMat);
+  handleL.position.set(-0.35, -0.28, 0.15);
+  gliderGroup.add(handleL);
+
+  const handleR = new THREE.Mesh(handleGeo, handleMat);
+  handleR.position.set(0.35, -0.28, 0.15);
+  gliderGroup.add(handleR);
+
+  gliderGroup.visible = false;
+  root.add(gliderGroup);
+
   // Overhead Tag Sprite for Multiplayer
   let nameSprite: THREE.Sprite | undefined;
   let tagCanvas: HTMLCanvasElement | null = null;
@@ -369,10 +477,15 @@ export function createCharacterModel(
     isSliding: boolean,
     isAlive: boolean,
     isCelebrating?: boolean,
-    celebrationElapsed: number = 0
+    celebrationElapsed: number = 0,
+    hasHoverboard: boolean = false,
+    isGliding: boolean = false,
+    laneOffset: number = 0
   ) => {
     // 1. Victory Celebration Animation
     if (isCelebrating) {
+      gliderGroup.visible = false;
+      hoverboardGroup.visible = false;
       if (celebrationElapsed < 0.6) {
         // Fast energetic run-up
         const sprintSwing = Math.sin(time * 26);
@@ -419,11 +532,75 @@ export function createCharacterModel(
     }
 
     if (!isAlive) {
+      gliderGroup.visible = false;
+      hoverboardGroup.visible = false;
       // Knockout ragdoll pose
       hips.position.y = THREE.MathUtils.damp(hips.position.y, 0.25, 10, 0.016);
       hips.rotation.x = THREE.MathUtils.damp(hips.rotation.x, -Math.PI / 2.2, 10, 0.016);
       hips.rotation.z = THREE.MathUtils.damp(hips.rotation.z, 0.3, 10, 0.016);
       return;
+    }
+
+    // --- Glider Aerial Flight Stance ---
+    if (isGliding) {
+      gliderGroup.visible = true;
+      hoverboardGroup.visible = false;
+
+      // Aerodynamic forward flight lean
+      hips.position.y = THREE.MathUtils.damp(hips.position.y, 0.95, 12, 0.016);
+      hips.rotation.x = THREE.MathUtils.damp(hips.rotation.x, 0.42, 12, 0.016);
+      hips.rotation.y = THREE.MathUtils.damp(hips.rotation.y, 0, 12, 0.016);
+      hips.rotation.z = THREE.MathUtils.damp(hips.rotation.z, -laneOffset * 0.25, 12, 0.016);
+      gliderGroup.rotation.z = THREE.MathUtils.damp(gliderGroup.rotation.z, -laneOffset * 0.35, 12, 0.016);
+
+      // Arms gripping glider overhead handles
+      leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, -2.3, 12, 0.016);
+      rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, -2.3, 12, 0.016);
+      leftArm.rotation.z = -0.25;
+      rightArm.rotation.z = 0.25;
+
+      // Legs trailing smoothly in wind stream
+      leftLeg.rotation.x = THREE.MathUtils.damp(leftLeg.rotation.x, 0.45 + Math.sin(time * 3) * 0.05, 12, 0.016);
+      rightLeg.rotation.x = THREE.MathUtils.damp(rightLeg.rotation.x, 0.5 + Math.cos(time * 3) * 0.05, 12, 0.016);
+
+      headGroup.rotation.x = -0.32; // Looking ahead at oncoming track
+      return;
+    } else {
+      gliderGroup.visible = false;
+    }
+
+    // --- Protective Hoverboard Surfing Stance ---
+    if (hasHoverboard) {
+      hoverboardGroup.visible = true;
+
+      // Hover gentle floating oscillation
+      const hoverBob = Math.sin(time * 7) * 0.035;
+      hips.position.y = 0.84 + hoverBob;
+      hips.rotation.x = THREE.MathUtils.damp(hips.rotation.x, 0.08, 12, 0.016);
+      // Skate/surf angled stance
+      hips.rotation.y = THREE.MathUtils.damp(hips.rotation.y, 0.32, 12, 0.016);
+      hips.rotation.z = THREE.MathUtils.damp(hips.rotation.z, -laneOffset * 0.22, 12, 0.016);
+      hoverboardGroup.rotation.z = THREE.MathUtils.damp(hoverboardGroup.rotation.z, -laneOffset * 0.3, 12, 0.016);
+      hoverboardGroup.position.y = 0.06 + hoverBob;
+
+      // Knees bent, feet braced on deck
+      leftLeg.rotation.x = THREE.MathUtils.damp(leftLeg.rotation.x, -0.3, 12, 0.016);
+      rightLeg.rotation.x = THREE.MathUtils.damp(rightLeg.rotation.x, 0.3, 12, 0.016);
+      leftLeg.rotation.y = 0.2;
+      rightLeg.rotation.y = 0.2;
+
+      // Arms out for surfing balance
+      leftArm.rotation.x = THREE.MathUtils.damp(leftArm.rotation.x, -0.4, 12, 0.016);
+      leftArm.rotation.z = -0.45;
+      rightArm.rotation.x = THREE.MathUtils.damp(rightArm.rotation.x, 0.4, 12, 0.016);
+      rightArm.rotation.z = 0.45;
+
+      headGroup.rotation.y = -0.28; // Head turns forward down the track
+      return;
+    } else {
+      hoverboardGroup.visible = false;
+      hoverboardGroup.rotation.z = 0;
+      hips.rotation.y = THREE.MathUtils.damp(hips.rotation.y, 0, 12, 0.016);
     }
 
     if (isSliding) {
@@ -492,6 +669,8 @@ export function createCharacterModel(
     nameSprite,
     shieldSphere,
     magnetRings,
+    hoverboardGroup,
+    gliderGroup,
     updateAnimation,
     updateTag,
     dispose

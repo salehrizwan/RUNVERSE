@@ -5,11 +5,13 @@ export interface CollisionResult {
   hitObstacle: boolean;
   obstacleType?: string;
   collectedCoins: number;
-  collectedPowerUps: ('shield' | 'magnet' | 'multiplier')[];
+  collectedPowerUps: ('shield' | 'magnet' | 'multiplier' | 'hoverboard' | 'glider')[];
 }
 
 /**
  * Checks for collision between the player and all nearby obstacles/collectibles.
+ * Uses full 3D capsule line-segment distance so airborne coins during jump arcs
+ * and ground coins during slides are reliably collected without false misses.
  */
 export function checkCollisions(
   player: PlayerRunState,
@@ -71,30 +73,41 @@ export function checkCollisions(
     }
   }
 
-  // Check Collectibles
-  const magnetRadius = player.magnetTimer > 0 ? 8.5 : 1.35;
+  // Check Collectibles with 3D vertical capsule line-segment proximity
+  const magnetRadius = player.magnetTimer > 0 ? 9.5 : 1.4;
   for (let i = 0; i < collectibles.length; i++) {
     const col = collectibles[i];
     if (col.collected) continue;
 
     const colX = LANES[col.lane + 1];
     const dx = colX - player.laneX;
-    const dy = col.y - (player.y + 0.8);
     const dz = col.z - playerZ;
+
+    // Closest vertical point on the player's 3D humanoid capsule:
+    // When upright: [player.y, player.y + 1.85]
+    // When sliding: [player.y, player.y + 0.75]
+    const pCapsuleTop = player.isSliding ? player.y + 0.75 : player.y + 1.85;
+    const closestY = Math.max(player.y, Math.min(pCapsuleTop, col.y));
+    const dy = col.y - closestY;
+
     const distSq = dx * dx + dy * dy + dz * dz;
 
-    // Magnet attraction effect
+    // Magnet attraction effect: smoothly flies toward player torso
     if (player.magnetTimer > 0 && distSq < magnetRadius * magnetRadius && col.type === 'coin') {
-      // Move coin mesh toward player
       if (col.mesh) {
-        col.mesh.position.x += (player.laneX - colX) * 8 * delta;
-        col.mesh.position.y += ((player.y + 0.8) - col.y) * 8 * delta;
-        col.mesh.position.z += (playerZ - col.z) * 8 * delta;
+        col.mesh.position.x += (player.laneX - colX) * 9 * delta;
+        col.mesh.position.y += ((player.y + 0.9) - col.y) * 9 * delta;
+        col.mesh.position.z += (playerZ - col.z) * 9 * delta;
       }
     }
 
-    // Direct collection pickup threshold (~1.4m)
-    if (distSq < 1.95) {
+    // Direct collection pickup threshold:
+    // Fair, forgiving bounds accounting for jump arcs and high speed travel
+    const inLaneReach = Math.abs(dx) <= 1.25;
+    const inVerticalReach = Math.abs(dy) <= 1.05;
+    const inZReach = Math.abs(dz) <= 2.2;
+
+    if ((distSq <= 3.2) || (inLaneReach && inVerticalReach && inZReach)) {
       col.collected = true;
       if (col.mesh) {
         col.mesh.visible = false;

@@ -149,7 +149,9 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             {connectionStatus === 'connected' ? (
               <>
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-                <span className="text-emerald-400 font-bold">ONLINE SERVER CONNECTED</span>
+                <span className="text-emerald-400 font-bold">
+                  {multiplayerManager.getConnectionMode() === 'ws' ? 'ONLINE (WEBSOCKET REAL-TIME)' : 'ONLINE (HTTP SYNC READY)'}
+                </span>
               </>
             ) : connectionStatus === 'connecting' ? (
               <>

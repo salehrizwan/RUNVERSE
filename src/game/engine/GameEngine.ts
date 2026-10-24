@@ -9,7 +9,13 @@ import { soundManager } from '../audio/soundManager';
 
 export interface GameEngineCallbacks {
   onScoreUpdate: (score: number, distance: number, coins: number, speed: number, activeRunTime: number) => void;
-  onPowerUpUpdate: (shield: boolean, magnetTimer: number, multiplierTimer: number) => void;
+  onPowerUpUpdate: (
+    shield: boolean,
+    magnetTimer: number,
+    multiplierTimer: number,
+    hoverboardTimer: number,
+    gliderTimer: number
+  ) => void;
   onGameOver: (finalScore: number, finalDistance: number, coinsEarned: number, reason: string) => void;
   onPlayerStateEmit?: (state: Partial<MultiplayerPlayerState>) => void;
 }
@@ -50,6 +56,9 @@ export class GameEngine {
   private isCelebrating: boolean = false;
   private celebrationElapsed: number = 0;
 
+  // Speed Control
+  private speedControl: 'normal' | 'boost' | 'brake' = 'normal';
+
   // Player State
   public status: GameStatus = 'menu';
   private playerZ: number = 0;
@@ -62,7 +71,7 @@ export class GameEngine {
     isJumping: false,
     isSliding: false,
     slideTimer: 0,
-    speed: 18,
+    speed: 16,
     distance: 0,
     score: 0,
     activeRunTime: 0,
@@ -70,6 +79,10 @@ export class GameEngine {
     activeShield: false,
     magnetTimer: 0,
     multiplierTimer: 0,
+    hoverboardTimer: 0,
+    gliderTimer: 0,
+    isGliding: false,
+    speedControlState: 'normal',
     isAlive: true,
     isCelebrating: false
   };
@@ -285,6 +298,7 @@ export class GameEngine {
     this.activeRunTime = 0;
     this.isCelebrating = false;
     this.celebrationElapsed = 0;
+    this.speedControl = 'normal';
 
     if (assignedColor && assignedColor !== this.assignedColor) {
       this.assignedColor = assignedColor;
@@ -294,7 +308,7 @@ export class GameEngine {
     }
 
     const charDef = CHARACTERS[this.characterId] || CHARACTERS.cyber_dash;
-    const baseSpeed = 18 * charDef.stats.speedBoost;
+    const baseSpeed = 16 * charDef.stats.speedBoost;
 
     this.playerState = {
       lane: 0,
@@ -312,6 +326,10 @@ export class GameEngine {
       activeShield: false,
       magnetTimer: 0,
       multiplierTimer: 0,
+      hoverboardTimer: 0,
+      gliderTimer: 0,
+      isGliding: false,
+      speedControlState: 'normal',
       isAlive: true,
       isCelebrating: false
     };
@@ -336,6 +354,29 @@ export class GameEngine {
     }
   }
 
+  // Player Speed Control (Safe Boost and Braking)
+  public boost(active: boolean): void {
+    if (this.status !== 'running' || !this.playerState.isAlive) return;
+    if (active) {
+      this.speedControl = 'boost';
+      this.playerState.speedControlState = 'boost';
+    } else if (this.speedControl === 'boost') {
+      this.speedControl = 'normal';
+      this.playerState.speedControlState = 'normal';
+    }
+  }
+
+  public brake(active: boolean): void {
+    if (this.status !== 'running' || !this.playerState.isAlive) return;
+    if (active) {
+      this.speedControl = 'brake';
+      this.playerState.speedControlState = 'brake';
+    } else if (this.speedControl === 'brake') {
+      this.speedControl = 'normal';
+      this.playerState.speedControlState = 'normal';
+    }
+  }
+
   // Core Runner Actions
   public moveLeft(): void {
     if (this.status !== 'running' || !this.playerState.isAlive) return;
@@ -357,6 +398,9 @@ export class GameEngine {
 
   public jump(): void {
     if (this.status !== 'running' || !this.playerState.isAlive) return;
+    // Glider flight handles altitude automatically
+    if (this.playerState.isGliding) return;
+
     if (!this.playerState.isJumping) {
       this.playerState.isJumping = true;
       this.playerState.isSliding = false; // Cancel slide when jumping
@@ -368,6 +412,17 @@ export class GameEngine {
 
   public slide(): void {
     if (this.status !== 'running' || !this.playerState.isAlive) return;
+
+    // Glider Dive / Rapid Descent on slide
+    if (this.playerState.isGliding) {
+      this.playerState.isGliding = false;
+      this.playerState.gliderTimer = 0;
+      this.playerState.vy = -18;
+      soundManager.playSlide();
+      this.emitMultiplayerState();
+      return;
+    }
+
     this.playerState.isSliding = true;
     this.playerState.slideTimer = 0.72; // ~0.72 seconds duration
 
@@ -386,6 +441,8 @@ export class GameEngine {
         y: this.playerState.y,
         isJumping: this.playerState.isJumping,
         isSliding: this.playerState.isSliding,
+        isGliding: this.playerState.isGliding,
+        hoverboard: this.playerState.hoverboardTimer > 0,
         distance: Math.floor(this.playerState.distance),
         score: Math.floor(this.playerState.score),
         isAlive: this.playerState.isAlive,
@@ -445,10 +502,15 @@ export class GameEngine {
       this.playerState.activeRunTime = this.activeRunTime;
       this.playerState.score = Math.floor(this.activeRunTime * 2);
 
-      // 2. Forward Speed Acceleration (starts at 18 m/s, climbs to 34 m/s)
-      const maxSpeed = 34 * charDef.stats.speedBoost;
-      const baseStart = 18 * charDef.stats.speedBoost;
-      this.playerState.speed = Math.min(maxSpeed, baseStart + this.playerState.distance * 0.012);
+      // 2. Authoritative Progressive Forward Speed (starts at ~16 m/s, climbs to ~32 m/s over active time)
+      const progressiveBase = Math.min(32, 16 + this.activeRunTime * 0.28) * charDef.stats.speedBoost;
+      let targetSpeed = progressiveBase;
+      if (this.speedControl === 'boost') {
+        targetSpeed = Math.min(36, progressiveBase + 5.5);
+      } else if (this.speedControl === 'brake') {
+        targetSpeed = Math.max(13.5, progressiveBase - 4.5);
+      }
+      this.playerState.speed = THREE.MathUtils.damp(this.playerState.speed, targetSpeed, 6, delta);
 
       // 3. Advance player forward along -Z axis
       const distTraveled = this.playerState.speed * delta;
@@ -459,8 +521,21 @@ export class GameEngine {
       const targetLaneX = LANES[this.playerState.lane + 1];
       this.playerState.laneX = THREE.MathUtils.damp(this.playerState.laneX, targetLaneX, 16, delta);
 
-      // 5. Jump Physics
-      if (this.playerState.isJumping) {
+      // 5. Jump and Glider Flight Physics
+      if (this.playerState.gliderTimer > 0) {
+        this.playerState.gliderTimer -= delta;
+        if (this.playerState.gliderTimer <= 0) {
+          this.playerState.isGliding = false;
+          this.playerState.gliderTimer = 0;
+          this.playerState.vy = -4.5; // Soft descent back to track
+        } else {
+          this.playerState.isGliding = true;
+          // Smoothly maintain aerial cruising altitude at Y = 3.8m above obstacles
+          this.playerState.y = THREE.MathUtils.damp(this.playerState.y, 3.8, 5, delta);
+          this.playerState.vy = 0;
+          this.playerState.isJumping = false;
+        }
+      } else if (this.playerState.isJumping || this.playerState.y > 0) {
         this.playerState.y += this.playerState.vy * delta;
         this.playerState.vy -= 34 * delta; // Gravity
 
@@ -485,6 +560,9 @@ export class GameEngine {
       }
       if (this.playerState.multiplierTimer > 0) {
         this.playerState.multiplierTimer = Math.max(0, this.playerState.multiplierTimer - delta);
+      }
+      if (this.playerState.hoverboardTimer > 0) {
+        this.playerState.hoverboardTimer = Math.max(0, this.playerState.hoverboardTimer - delta);
       }
 
       // Update Shield & Magnet visual indicators
@@ -523,18 +601,29 @@ export class GameEngine {
             this.playerState.magnetTimer = 8 + charDef.stats.magnetBonus;
           } else if (pu === 'multiplier') {
             this.playerState.multiplierTimer = 10;
+          } else if (pu === 'hoverboard') {
+            this.playerState.hoverboardTimer = 15;
+          } else if (pu === 'glider') {
+            this.playerState.gliderTimer = 10;
+            this.playerState.isGliding = true;
+            this.playerState.vy = 8;
           }
         });
       }
 
-      // Handle Lethal Obstacle Hit
+      // Handle Obstacle Collision with Hoverboard & Shield Protection
       if (collision.hitObstacle) {
-        if (this.playerState.activeShield) {
+        if (this.playerState.hoverboardTimer > 0) {
+          // Protective Hoverboard breaks and absorbs the lethal impact!
+          this.playerState.hoverboardTimer = 0;
+          soundManager.playCrash();
+          this.triggerCoinBurst(this.playerState.laneX, this.playerState.y + 0.4, this.playerZ);
+        } else if (this.playerState.activeShield) {
           // Shield absorbs one hit!
           this.playerState.activeShield = false;
           soundManager.playCrash();
         } else {
-          // Run Over!
+          // Lethal Crash! Run Over!
           this.playerState.isAlive = false;
           this.playerState.deathReason = collision.obstacleType || 'Obstacle Impact';
           this.status = 'gameover';
@@ -563,7 +652,9 @@ export class GameEngine {
       this.callbacks.onPowerUpUpdate(
         this.playerState.activeShield,
         this.playerState.magnetTimer,
-        this.playerState.multiplierTimer
+        this.playerState.multiplierTimer,
+        this.playerState.hoverboardTimer,
+        this.playerState.gliderTimer
       );
 
       // Periodic multiplayer synchronization
@@ -601,7 +692,10 @@ export class GameEngine {
       this.playerState.isSliding,
       this.playerState.isAlive,
       this.isCelebrating,
-      this.celebrationElapsed
+      this.celebrationElapsed,
+      this.playerState.hoverboardTimer > 0,
+      this.playerState.isGliding,
+      this.playerState.laneX - LANES[this.playerState.lane + 1]
     );
 
     // Update Opponent Runner in Shared Race
@@ -641,7 +735,11 @@ export class GameEngine {
         20,
         !!this.opponentState.isJumping,
         !!this.opponentState.isSliding,
-        this.opponentState.isAlive !== false
+        this.opponentState.isAlive !== false,
+        false,
+        0,
+        !!this.opponentState.hoverboard,
+        !!this.opponentState.isGliding
       );
     }
 
@@ -684,6 +782,7 @@ export class GameEngine {
   private setupEventListeners(): void {
     window.addEventListener('resize', this.onWindowResize);
     window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
   }
 
   private onWindowResize = (): void => {
@@ -718,9 +817,38 @@ export class GameEngine {
         e.preventDefault();
         this.slide();
         break;
+      // Boost shortcuts (Shift / E)
+      case 'ShiftLeft':
+      case 'ShiftRight':
+      case 'KeyE':
+        e.preventDefault();
+        this.boost(true);
+        break;
+      // Brake shortcuts (Q / Ctrl)
+      case 'KeyQ':
+      case 'ControlLeft':
+      case 'ControlRight':
+        e.preventDefault();
+        this.brake(true);
+        break;
       case 'Escape':
       case 'KeyP':
         this.pause();
+        break;
+    }
+  };
+
+  private onKeyUp = (e: KeyboardEvent): void => {
+    switch (e.code) {
+      case 'ShiftLeft':
+      case 'ShiftRight':
+      case 'KeyE':
+        this.boost(false);
+        break;
+      case 'KeyQ':
+      case 'ControlLeft':
+      case 'ControlRight':
+        this.brake(false);
         break;
     }
   };
@@ -746,6 +874,7 @@ export class GameEngine {
     soundManager.stopMusic();
     window.removeEventListener('resize', this.onWindowResize);
     window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
 
     if (this.frameId) {
       cancelAnimationFrame(this.frameId);
